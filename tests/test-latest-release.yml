@@ -1,0 +1,27 @@
+name: Test setup-crane latest-release
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: setup-crane
+        uses: .
+        with:
+          version: latest-release
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        continue-on-error: true
+      - name: Assert crane is installed
+        run: |
+          echo "Checking if crane is installed..."
+          if ! command -v crane &>/dev/null; then
+            echo "FAIL: crane binary not found in PATH"
+            exit 1
+          fi
+          echo "crane found at: $(which crane)"
+          crane version || true
+          echo "PASS: crane is installed"

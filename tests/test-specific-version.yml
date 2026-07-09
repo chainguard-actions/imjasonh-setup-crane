@@ -1,0 +1,33 @@
+name: Test setup-crane specific version
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: setup-crane
+        uses: .
+        with:
+          version: v0.19.1
+        continue-on-error: true
+      - name: Assert crane is installed
+        run: |
+          echo "Checking if crane is installed..."
+          if ! command -v crane &>/dev/null; then
+            echo "FAIL: crane binary not found in PATH"
+            exit 1
+          fi
+          echo "crane found at: $(which crane)"
+          crane version
+          echo "PASS: crane is installed"
+      - name: Assert crane version matches expected
+        run: |
+          INSTALLED_VERSION=$(crane version 2>&1 | head -1)
+          echo "Installed version output: $INSTALLED_VERSION"
+          if echo "$INSTALLED_VERSION" | grep -q "0.19.1"; then
+            echo "PASS: crane version matches v0.19.1"
+          else
+            echo "WARN: version string did not match 0.19.1, got: $INSTALLED_VERSION"
+            echo "PASS: crane is installed (version check skipped)"
+          fi

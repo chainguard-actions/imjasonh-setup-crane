@@ -1,0 +1,66 @@
+name: 'Setup crane'
+description: 'Install and authorize crane'
+branding:
+  icon: box
+  color: green
+inputs:
+  version:
+    description: 'Version of crane to install (tip, latest-release, v0.5.1, etc.)'
+    required: true
+    default: 'latest-release'
+runs:
+  using: "composite"
+  steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
+    - shell: bash
+      env:
+        INPUTS_VERSION: ${{ inputs.version }}
+        GITHUB_TOKEN: ${{ github.token }}
+        RUNNER_OS: ${{ runner.os }}
+      run: |
+        set -ex
+
+        # Install crane:
+        # - if version is "tip", install from tip of main.
+        # - if version is "latest-release", look up latest release.
+        # - otherwise, install the specified version.
+        case "$INPUTS_VERSION" in
+        tip)
+          echo "Installing crane using go get"
+          go get github.com/google/go-containerregistry/cmd/crane@main
+          ;;
+        latest-release)
+          tag=$(curl -s -u "username:$GITHUB_TOKEN" https://api.github.com/repos/google/go-containerregistry/releases/latest | jq -r '.tag_name')
+          ;;
+        *)
+          tag="$INPUTS_VERSION"
+        esac
+
+        os="$RUNNER_OS"
+        if [[ "$os" == "macOS" ]]; then
+          os="Darwin"
+        fi
+
+        if [[ ! -z "${tag}" ]]; then
+          echo "Installing crane @ ${tag} for ${os}"
+          curl -fsL "https://github.com/google/go-containerregistry/releases/download/${tag}/go-containerregistry_${os}_x86_64.tar.gz" | sudo tar xzf - -C /usr/local/bin crane
+        fi
+
+        # NB: username doesn't seem to matter.
+        echo "$GITHUB_TOKEN" | crane auth login ghcr.io --username "dummy" --password-stdin
