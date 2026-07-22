@@ -6,28 +6,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - id: setup-crane
+
+      - name: Install crane (specific version v0.19.1)
         uses: .
         with:
           version: v0.19.1
-        continue-on-error: true
-      - name: Assert crane is installed
+
+      - name: Assert crane is installed at the expected version
         run: |
-          echo "Checking if crane is installed..."
+          echo "Checking crane is on PATH..."
           if ! command -v crane &>/dev/null; then
-            echo "FAIL: crane binary not found in PATH"
+            echo "FAIL: crane not found on PATH"
             exit 1
           fi
-          echo "crane found at: $(which crane)"
-          crane version
-          echo "PASS: crane is installed"
-      - name: Assert crane version matches expected
-        run: |
-          INSTALLED_VERSION=$(crane version 2>&1 | head -1)
-          echo "Installed version output: $INSTALLED_VERSION"
-          if echo "$INSTALLED_VERSION" | grep -q "0.19.1"; then
-            echo "PASS: crane version matches v0.19.1"
+          echo "crane found at: $(command -v crane)"
+          CRANE_VERSION="$(crane version 2>&1)"
+          echo "crane version output: $CRANE_VERSION"
+          # The version string should contain 0.19.1
+          if echo "$CRANE_VERSION" | grep -q "0.19.1"; then
+            echo "PASS: crane version matches expected 0.19.1"
           else
-            echo "WARN: version string did not match 0.19.1, got: $INSTALLED_VERSION"
-            echo "PASS: crane is installed (version check skipped)"
+            echo "FAIL: expected version 0.19.1 but got: $CRANE_VERSION"
+            exit 1
           fi

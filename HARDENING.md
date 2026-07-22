@@ -8,7 +8,7 @@
 
 **Test Policy SHA:** `843adf9e4b8f85d0c08b27b9d0b09dd094b54702`
 
-**Harden Agent Version:** `1`
+**Harden Agent Version:** `2`
 
 Action **imjasonh--setup-crane/v0.1** was hardened automatically. 5 finding(s) were identified and resolved across 2 iteration(s).
 
@@ -16,43 +16,31 @@ Action **imjasonh--setup-crane/v0.1** was hardened automatically. 5 finding(s) w
 
 ### script-injection (severity: high)
 
-The action.yml run: block directly interpolates ${{ ... }} expressions into shell commands (sub-rule a), allowing script injection. Offending lines:
-- Line 22: `case ${{ inputs.version }} in` — attacker-controlled input interpolated directly into a case statement
-- Line 28: `tag=$(curl -s -u "username:${{ github.token }}" ...)` — github.token interpolated into curl command
-- Line 30: `tag="${{ inputs.version }}"` — attacker-controlled input interpolated into shell variable assignment
-- Line 33: `os=${{ runner.os }}` — runner.os interpolated directly into shell
-- Line 44: `echo "${{ github.token }}" | crane auth login ...` — github.token interpolated into echo/pipe
-All of these should be moved to env: variables and then referenced as quoted shell variables (e.g., "$INPUTS_VERSION").
+The run: block in action.yml directly interpolates GitHub Actions expressions inside shell commands (sub-rule a). Three expressions are embedded: (1) `case ${{ inputs.version }} in` — attacker-controlled input interpolated directly into a shell case statement, allowing command injection; (2) `curl -s -u "username:${{ github.token }}"` — github.token interpolated directly into a shell command; (3) `os=${{ runner.os }}` — runner.os interpolated directly into a shell assignment. All ${{ ... }} expressions inside run: blocks are script-injection risks because YAML template substitution happens before the shell ever sees the string, bypassing shell quoting. These should be moved to env: variables and referenced as quoted shell variables (e.g., "$INPUTS_VERSION", "$GITHUB_TOKEN", "$RUNNER_OS").
 
 Locations:
 
 - `action.yml:22`
-- `action.yml:28`
-- `action.yml:30`
-- `action.yml:33`
-- `action.yml:44`
+- `action.yml:26`
+- `action.yml:32`
+- `action.yml:36`
+- `action.yml:46`
 
 ### unpinned-uses (severity: high)
 
-The workflow file .github/workflows/use-action.yaml references actions by mutable tags/branches instead of full 40-character commit SHAs, making the workflow vulnerable to supply-chain attacks if those tags are moved:
-- Line 16: `actions/setup-go@v2`
-- Line 18: `actions/checkout@v2`
-- Line 20: `imjasonh/setup-crane@main`
-- Line 24: `imjasonh/setup-crane@main`
-- Line 31: `imjasonh/setup-crane@main`
-All uses: references should be pinned to a full SHA (e.g., `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v2`).
+The workflow file .github/workflows/use-action.yaml references multiple actions using mutable tags/branches instead of full 40-character commit SHA digests, making the workflow vulnerable to supply-chain attacks if those refs are moved: (1) `uses: actions/setup-go@v2` — mutable version tag; (2) `uses: actions/checkout@v2` — mutable version tag; (3) `uses: imjasonh/setup-crane@main` — mutable branch ref (appears 3 times). All should be pinned to their full SHA, e.g. `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v2`.
 
 Locations:
 
+- `.github/workflows/use-action.yaml:14`
 - `.github/workflows/use-action.yaml:16`
 - `.github/workflows/use-action.yaml:18`
-- `.github/workflows/use-action.yaml:20`
-- `.github/workflows/use-action.yaml:24`
-- `.github/workflows/use-action.yaml:31`
+- `.github/workflows/use-action.yaml:22`
+- `.github/workflows/use-action.yaml:27`
 
 ### missing-permissions (severity: medium)
 
-The workflow file .github/workflows/use-action.yaml has no top-level `permissions:` key and the single job `use-action` also has no `permissions:` key. Without explicit permissions, the workflow inherits the repository's default token permissions (which may be write-all), violating the principle of least privilege. A minimal permissions block (e.g., `permissions: {}` or specific scopes like `contents: read`) should be added.
+The workflow file .github/workflows/use-action.yaml has no top-level `permissions:` key and the single job `use-action` also has no job-level `permissions:` key. Without explicit permissions, the workflow inherits the repository's default token permissions (which may be write-all), violating the principle of least privilege. A minimal permissions block (e.g., `permissions: {}` or `permissions: contents: read`) should be added at the top level or on each job.
 
 Locations:
 
@@ -82,10 +70,7 @@ Locations:
 
 **Notes:**
 
-Fixed three categories of findings:
-1. script-injection / static-inline-injection (action.yml): Moved all ${{ inputs.version }}, ${{ github.token }}, and ${{ runner.os }} expressions out of the run: shell block into an env: map (INPUTS_VERSION, GITHUB_TOKEN, RUNNER_OS). All shell references now use plain quoted environment variables (e.g., "$INPUTS_VERSION", "$GITHUB_TOKEN", "$RUNNER_OS").
-2. unpinned-uses (.github/workflows/use-action.yaml): Pinned actions/setup-go@v2 → @bfdd3570ce990073878bf10f6b2d79082de49492, actions/checkout@v2 → @ee0669bd1cc54295c223e0bb666b733df41de1c5, and all three imjasonh/setup-crane@main → @feee3b6bb0d4c68370f256a4502498c9227e5c6b, with original tag/branch preserved as comments.
-3. missing-permissions (.github/workflows/use-action.yaml): Added top-level `permissions: {}` to enforce least privilege.
+Fixed action.yml: moved all ${{ inputs.version }}, ${{ github.token }}, and ${{ runner.os }} expressions out of the run: block into an env: block (as INPUTS_VERSION, GITHUB_TOKEN, RUNNER_OS) and updated all shell references to use quoted variables. Fixed .github/workflows/use-action.yaml: added `permissions: {}` at the top level, and pinned all action references to full commit SHAs — actions/setup-go@v2 → bfdd3570ce990073878bf10f6b2d79082de49492, actions/checkout@v2 → 0717577d45739eb3c851188b29f50ed6c0b2194e, imjasonh/setup-crane@main (×3) → feee3b6bb0d4c68370f256a4502498c9227e5c6b.
 
 ### Iteration 2
 
@@ -93,5 +78,8 @@ Fixed three categories of findings:
 
 **Notes:**
 
-Fixed three unquoted shell variable expansions in action.yml's run block: (1) quoted `$os` in the `[[ $os == "macOS" ]]` conditional → `[[ "$os" == "macOS" ]]`; (2) quoted `${tag}` in the `[[ ! -z ${tag} ]]` conditional → `[[ ! -z "${tag}" ]]`; (3) wrapped the entire curl URL in double quotes so both `${tag}` and `${os}` are properly quoted, preventing shell metacharacter injection.
+Fixed three unquoted shell variable expansions in action.yml:
+1. Line 37: `if [[ $os == "macOS" ]]` → `if [[ "$os" == "macOS" ]]` — quoted $os in the [[ test
+2. Line 41: `if [[ ! -z ${tag} ]]` → `if [[ ! -z "${tag}" ]]` — quoted ${tag} in the [[ test
+3. Line 43: The curl URL now uses double-quoting around the entire URL string, properly quoting both ${tag} and ${os} expansions to prevent shell metacharacter injection
 
