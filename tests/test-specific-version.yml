@@ -1,0 +1,31 @@
+name: Test specific version install
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          version: v0.19.0
+      - name: Assert crane is installed and on PATH
+        run: |
+          echo "Checking crane is available..."
+          if ! command -v crane &>/dev/null; then
+            echo "FAIL: crane not found in PATH"
+            exit 1
+          fi
+          echo "PASS: crane found at $(command -v crane)"
+      - name: Assert crane version matches expected
+        run: |
+          echo "Running crane version..."
+          CRANE_VERSION=$(crane version 2>&1)
+          echo "crane version output: $CRANE_VERSION"
+          if echo "$CRANE_VERSION" | grep -q "0.19.0"; then
+            echo "PASS: crane version 0.19.0 confirmed"
+          else
+            echo "FAIL: expected version 0.19.0 but got: $CRANE_VERSION"
+            exit 1
+          fi
