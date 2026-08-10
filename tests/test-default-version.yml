@@ -1,0 +1,19 @@
+name: Test setup-crane default version input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: setup-crane
+        uses: .
+        # No 'version' input specified — should default to 'latest-release'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Assert crane is installed with default version
+        run: |
+          echo "Checking crane is on PATH (default version)..."
+          which crane || { echo "FAIL: crane not found on PATH"; exit 1; }
+          crane version || { echo "FAIL: crane version command failed"; exit 1; }
+          echo "PASS: crane installed successfully with default version"

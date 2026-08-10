@@ -1,0 +1,42 @@
+name: Test setup-crane latest-release
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: setup
+        uses: .
+        with:
+          version: latest-release
+      - name: Assert crane is installed and runnable
+        run: |
+          echo "Checking crane is on PATH..."
+          which crane || { echo "FAIL: crane not found on PATH"; exit 1; }
+          crane version || { echo "FAIL: crane version command failed"; exit 1; }
+          echo "PASS: crane is installed"
+      - name: Assert crane auth config exists for ghcr.io
+        run: |
+          echo "Checking crane auth configuration..."
+          # crane auth login writes to ~/.config/crane/config.json or docker config
+          # Try crane auth list first
+          AUTH_OUTPUT=$(crane auth list 2>&1 || true)
+          echo "crane auth list output: $AUTH_OUTPUT"
+          # Also check docker config which crane may use
+          DOCKER_CONFIG=$(cat ~/.docker/config.json 2>/dev/null || echo "no docker config")
+          echo "docker config: $DOCKER_CONFIG"
+          # Check crane config
+          CRANE_CONFIG=$(cat ~/.config/crane/config.json 2>/dev/null || echo "no crane config")
+          echo "crane config: $CRANE_CONFIG"
+          # Accept if ghcr.io appears in any of the above
+          if echo "$AUTH_OUTPUT" | grep -q "ghcr.io"; then
+            echo "PASS: ghcr.io found in crane auth list"
+          elif echo "$DOCKER_CONFIG" | grep -q "ghcr.io"; then
+            echo "PASS: ghcr.io found in docker config"
+          elif echo "$CRANE_CONFIG" | grep -q "ghcr.io"; then
+            echo "PASS: ghcr.io found in crane config"
+          else
+            echo "FAIL: ghcr.io not found in any auth config"
+            exit 1
+          fi

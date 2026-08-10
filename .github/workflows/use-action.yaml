@@ -1,0 +1,56 @@
+name: Use Action
+
+on:
+  pull_request:
+    branches: ['main']
+  push:
+    branches: ['main']
+
+permissions: {}
+
+jobs:
+  use-action:
+    name: Use Action
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        shell: bash
+        
+    permissions:
+      packages: write
+
+    steps:
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: 1.21.x
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: ./
+      - run: |
+          crane digest ubuntu
+          crane manifest ubuntu | jq
+      - if: github.event_name == 'push'
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          crane copy ubuntu ghcr.io/"$REPO"/ubuntu-copy
+
+      - name: Install old release
+        uses: ./
+        with:
+          version: v0.12.0
+      - name: Check installed version
+        run: crane version | grep 0.12.0
+
+      - name: Install from tip
+        uses: ./
+        with:
+          version: tip
+      - name: Check installed version (tip)
+        run: |
+          rm $(which crane) # Uninstall previous versions.
+          crane version

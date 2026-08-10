@@ -8,47 +8,46 @@
 
 **Test Policy SHA:** `843adf9e4b8f85d0c08b27b9d0b09dd094b54702`
 
-**Harden Agent Version:** `1`
+**Harden Agent Version:** `2`
 
-Action **imjasonh--setup-crane/v0.6** was hardened automatically. 1 finding(s) were identified and resolved across 1 iteration(s).
+Action **imjasonh--setup-crane/v0.6** was hardened automatically. 2 finding(s) were identified and resolved across 2 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-Rule (b) violation: Multiple unquoted shell variable expansions of workflow-controllable data in the run: block.
-
-1. `${out}` is derived from `$RUNNER_OS` (set via `${{ runner.os }}` in env:) and is used unquoted in two commands:
-   - `tar xzf "$fname" ${out}` (line 55)
-   - `chmod +x ${tmp}/${out}` (line 56)
-   An attacker-controlled `runner.os` value containing shell metacharacters could be exploited.
-
-2. `$os` (also derived from `$RUNNER_OS` / `${{ runner.os }}`) is used unquoted in `if [[ $os == "macOS" ]]; then` (line 36). While `[[` prevents word splitting, this is still an unquoted expansion of a workflow-controllable value.
-
-3. `${url}` (which may embed `${VERSION}` from `${{ inputs.version }}`) is used unquoted in `if [[ ! -z ${url} ]]; then` (line 50).
-
-All of these should use double-quoted expansions: `"${out}"`, `"$os"`, `"${url}"`.
+Sub-rule (a): A ${{ github.repository }} expression is directly interpolated inside a `run:` shell command string. This allows the value to be parsed by the shell before quoting can protect it. The offending line is: `crane copy ubuntu ghcr.io/${{ github.repository }}/ubuntu-copy`. While `github.repository` is not directly attacker-controlled via PR, any ${{ }} expression in a run: block is a script-injection risk per the check rules. It should be moved to an `env:` variable and referenced as `"$GITHUB_REPOSITORY"` instead.
 
 Locations:
 
-- `action.yml:36`
-- `action.yml:50`
-- `action.yml:55`
-- `action.yml:56`
+- `.github/workflows/use-action.yaml:34`
+
+### unpinned-uses (severity: high)
+
+Two `uses:` references in the workflow use mutable tag refs instead of full 40-character commit SHA digests, making the workflow vulnerable to supply-chain attacks if the upstream tag is moved or compromised:
+- `uses: actions/setup-go@v5` (line 22) — should be pinned to a full SHA
+- `uses: actions/checkout@v4` (line 24) — should be pinned to a full SHA
+
+Locations:
+
+- `.github/workflows/use-action.yaml:22`
+- `.github/workflows/use-action.yaml:24`
 
 ## Iteration Notes
 
 ### Iteration 1
 
+**Fixes applied:** unpinned-uses, script-injection
+
+**Notes:**
+
+Fixed all three findings in .github/workflows/use-action.yaml: (1) Pinned actions/setup-go@v5 to full SHA 40f1582b2485089dde7abd97c1529aa768e1baff; (2) Pinned actions/checkout@v4 to full SHA 11d5960a326750d5838078e36cf38b85af677262; (3) Moved ${{ github.repository }} expression out of the run: shell string into an env: block as REPO, and referenced it as "$REPO" in the crane copy command to prevent script injection.
+
+### Iteration 2
+
 **Fixes applied:** script-injection
 
 **Notes:**
 
-Fixed four unquoted shell variable expansions in action.yml that could allow script injection via workflow-controllable values:
-1. Quoted `$os` in the `[[ $os == "macOS" ]]` condition (line 36) → `[[ "$os" == "macOS" ]]`
-2. Quoted `${url}` in the `[[ ! -z ${url} ]]` condition (line 50) → `[[ ! -z "${url}" ]]`
-3. Quoted `${out}` in the `tar xzf "$fname" ${out}` command (line 55) → `tar xzf "$fname" "${out}"`
-4. Quoted `${tmp}/${out}` in the `chmod +x ${tmp}/${out}` command (line 56) → `chmod +x "${tmp}/${out}"`
-
-All variables are already sourced from the env: block (not directly from ${{ }} expressions in the run: block), so no additional env: block changes were needed — only proper quoting was required.
+Fixed three unquoted shell variable expansions in action.yml that could allow metacharacter injection via a crafted runner.os value: (1) quoted `$os` in the `[[ $os == "macOS" ]]` condition → `[[ "$os" == "macOS" ]]`; (2) quoted `${out}` in `tar xzf "$fname" ${out}` → `tar xzf "$fname" "${out}"`; (3) quoted `${tmp}/${out}` in `chmod +x ${tmp}/${out}` → `chmod +x "${tmp}/${out}"`.
 

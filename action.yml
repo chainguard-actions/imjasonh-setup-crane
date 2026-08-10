@@ -67,7 +67,7 @@ runs:
           out=crane.exe
         fi
 
-        if [[ ! -z "${url}" ]]; then
+        if [[ ! -z ${url} ]]; then
           echo "Installing crane for ${os} on ${arch}"
           tmp=$(mktemp -d)
           cd ${tmp}
