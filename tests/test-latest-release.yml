@@ -1,0 +1,29 @@
+name: Test setup-crane latest-release
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        with:
+          version: latest-release
+      - name: Assert crane is installed and on PATH
+        run: |
+          echo "Checking crane is available..."
+          if ! command -v crane &>/dev/null; then
+            echo "FAIL: crane not found on PATH"
+            exit 1
+          fi
+          echo "PASS: crane found at $(command -v crane)"
+      - name: Assert crane version output
+        run: |
+          echo "Running crane version..."
+          crane version
+          if [ $? -ne 0 ]; then
+            echo "FAIL: crane version command failed"
+            exit 1
+          fi
+          echo "PASS: crane version ran successfully"
