@@ -4,51 +4,26 @@
 
 > This file was generated automatically by the hardening agent.
 
-**Policy SHA:** `d636be7e43ef829af6e853da6b3c7566db9f72fe`
+**Policy SHA:** `374911c4be584df24e6da57af2d990570ef0f859`
 
 **Test Policy SHA:** `843adf9e4b8f85d0c08b27b9d0b09dd094b54702`
 
 **Harden Agent Version:** `2`
 
-Action **imjasonh--setup-crane/v0.5** was hardened automatically. 6 finding(s) were identified and resolved across 1 iteration(s).
+Action **imjasonh--setup-crane/v0.5** was hardened automatically. 4 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-action.yml contains multiple direct ${{ }} expression interpolations inside a run: shell block, violating rule (a). (1) Line 22: `case ${{ inputs.version }} in` — inputs.version is attacker-controlled and interpolated directly into a case statement without quoting, also violating rule (b) (unquoted). (2) Line 30: `url="https://github.com/google/go-containerregistry/releases/download/${{ inputs.version }}"` — inputs.version interpolated directly into a URL string. (3) Line 33: `os=${{ runner.os }}` — runner.os interpolated directly and unquoted (rule b: `if [[ $os == ... ]]` uses $os unquoted). (4) Line 61: `echo "${{ github.token }}" | crane auth login ...` — github.token interpolated directly into the shell command. All four are script-injection rule (a) violations; lines 22 and 33 are also rule (b) violations.
+Rule (a): GitHub Actions expressions are placed straight into the composite step's run: script, so the template is filled in before bash parses it. Offending lines: `case ${{ inputs.version }} in` (line 22, also unquoted), `url="https://github.com/google/go-containerregistry/releases/download/${{ inputs.version }}"` (line 31), `os=${{ runner.os }}` (line 34) and `echo "${{ github.token }}" | crane auth login ...` (line 59). A crafted version input, e.g. one containing `; cmd` or `$(cmd)`, would run arbitrary commands. Fix: map inputs.version, runner.os and github.token into env: variables (or use $RUNNER_OS directly) and always expand them double-quoted, e.g. `case "$VERSION" in`.
 
 Locations:
 
 - `action.yml:22`
-- `action.yml:30`
-- `action.yml:33`
-- `action.yml:61`
-
-### script-injection (severity: high)
-
-The workflow file .github/workflows/use-action.yaml contains a direct ${{ }} expression interpolation inside a run: block, violating rule (a). Line 26: `crane copy ubuntu ghcr.io/${{ github.repository }}/ubuntu-copy` — github.repository is interpolated directly into the shell command string without being routed through an env: variable.
-
-Locations:
-
-- `.github/workflows/use-action.yaml:26`
-
-### unpinned-uses (severity: high)
-
-The workflow file .github/workflows/use-action.yaml references actions using mutable tag refs instead of full 40-character SHA digests: (1) `uses: actions/setup-go@v5` (line 20) — tag ref `v5`; (2) `uses: actions/checkout@v4` (line 22) — tag ref `v4`. These can be silently updated by the action author, enabling supply-chain attacks.
-
-Locations:
-
-- `.github/workflows/use-action.yaml:20`
-- `.github/workflows/use-action.yaml:22`
-
-### missing-permissions (severity: medium)
-
-The workflow file .github/workflows/use-action.yaml has no top-level `permissions:` key and no job-level `permissions:` key on the `use-action` job. Without explicit permissions, the GITHUB_TOKEN is granted its default (potentially broad) permissions, violating the principle of least privilege.
-
-Locations:
-
-- `.github/workflows/use-action.yaml:1`
+- `action.yml:31`
+- `action.yml:34`
+- `action.yml:59`
 
 ### static-inline-injection (severity: high)
 
@@ -66,21 +41,128 @@ Locations:
 
 - `action.yml:31`
 
+### prior-fix (severity: high)
+
+Carried forward from this version's previous harden, which fixed it; fix it again unless the code no longer has the problem. The previous harden changed action.yml without recording a finding for it, and this analysis reported nothing there. Re-apply its security changes unless the code no longer needs them. The previous patch:
+```diff
+diff --git a/action.yml b/action.yml
+index 7436f77..70a5463 100644
+--- a/action.yml
++++ b/action.yml
+@@ -11,52 +11,73 @@ inputs:
+ runs:
+   using: "composite"
+   steps:
+-  - shell: bash
+-    run: |
+-      set -ex
++    - shell: bash
++      env:
++        INPUT_VERSION: ${{ inputs.version }}
++        RUNNER_OS: ${{ runner.os }}
++        GITHUB_TOKEN: ${{ github.token }}
++      run: |
++        set -ex
+ 
+-      # Install crane:
+-      # - if version is "tip", install from tip of main.
+-      # - if version is "latest-release", use the latest release URL.
+-      # - otherwise, install the specified version.
+-      case ${{ inputs.version }} in
+-      tip)
+-        echo "Installing crane using go get"
+-        go install github.com/google/go-containerregistry/cmd/crane@main
+-        ;;
+-      latest-release)
+-        url="https://github.com/google/go-containerregistry/releases/latest/download"
+-        ;;
+-      *)
+-        url="https://github.com/google/go-containerregistry/releases/download/${{ inputs.version }}"
+-      esac
++        # Install crane:
++        # - if version is "tip", install from tip of main.
++        # - if version is "latest-release", use the latest release URL.
++        # - otherwise, install the specified version.
++        case "$INPUT_VERSION" in
++        tip)
++          echo "Installing crane using go get"
++          go install github.com/google/go-containerregistry/cmd/crane@main
++          ;;
++        latest-release)
++          url="https://github.com/google/go-containerregistry/releases/latest/download"
++          ;;
++        *)
++          url="https://github.com/google/go-containerregistry/releases/download/$INPUT_VERSION"
++        esac
+ 
+-      os=${{ runner.os }}
+-      if [[ $os == "macOS" ]]; then
+-        os="Darwin"
+-      fi
++        os="$RUNNER_OS"
++        if [[ "$os" == "macOS" ]]; then
++          os="Darwin"
++        fi
+ 
+-      arch=$(uname -m)
+-      if [[ "$arch" =~ (aarch64|arm64) ]] ; then
+-        arch=arm64
+-      fi
++        arch=$(uname -m)
++        if [[ "$arch" =~ (aarch64|arm64) ]] ; then
++          arch=arm64
++        fi
+ 
+-      out=crane
+-      if [[ "${os}" == "Windows" ]]; then
+-        out=crane.exe
+-      fi
++        out=crane
++        if [[ "${os}" == "Windows" ]]; then
++          out=crane.exe
++        fi
+ 
+-      if [[ ! -z ${url} ]]; then
+-        echo "Installing crane for ${os} on ${arch}"
+-        tmp=$(mktemp -d)
+-        cd ${tmp}
+-        fname="go-containerregistry_${os}_${arch}.tar.gz"
+-        curl -o "$fname" -fsSL --retry 5 --retry-delay 1 --retry-all-errors "${url}/${fname}"
+-        tar xzf "$fname" ${out}
+-        chmod +x ${tmp}/${out}
+-        PATH=${PATH}:${tmp}
+-        echo "${tmp}" >> $GITHUB_PATH
+-      fi
++        if [[ ! -z ${url} ]]; then
++          echo "Installing crane for ${os} on ${arch}"
++          tmp=$(mktemp -d)
++          cd ${tmp}
++          fname="go-containerregistry_${os}_${arch}.tar.gz"
++          curl -o "$fname" -fsSL --retry 5 --retry-delay 1 --retry-all-errors "${url}/${fname}"
++          tar xzf "$fname" ${out}
++          chmod +x ${tmp}/${out}
++          PATH=${PATH}:${tmp}
++          echo "${tmp}" >> $GITHUB_PATH
++        fi
+ 
+-      # NB: username doesn't seem to matter.
+-      echo "${{ github.token }}" | crane auth login ghcr.io --username "dummy" --password-stdin
++        # NB: username doesn't seem to matter.
++        echo "$GITHUB_TOKEN" | crane auth login ghcr.io --username "dummy" --password-stdin
+
+```
+
+Locations:
+
+- `action.yml`
+
 ## Iteration Notes
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, unpinned-uses, missing-permissions, static-inline-injection
+**Fixes applied:** script-injection, static-inline-injection, prior-fix
 
 **Notes:**
 
-Fixed all findings in action.yml and .github/workflows/use-action.yaml:
-
-1. action.yml script-injection: Added env: block with INPUT_VERSION=${{ inputs.version }}, RUNNER_OS=${{ runner.os }}, GITHUB_TOKEN=${{ github.token }}. Replaced all four inline ${{ }} expressions with plain env var references ($INPUT_VERSION, $RUNNER_OS, $GITHUB_TOKEN). Properly quoted the case statement and os= assignment.
-
-2. use-action.yaml script-injection: Moved ${{ github.repository }} to env: block as GITHUB_REPOSITORY and referenced it as $GITHUB_REPOSITORY in the shell command.
-
-3. use-action.yaml unpinned-uses: Pinned actions/setup-go@v5 to SHA 40f1582b2485089dde7abd97c1529aa768e1baff and actions/checkout@v4 to SHA 11d5960a326750d5838078e36cf38b85af677262.
-
-4. use-action.yaml missing-permissions: Added top-level permissions: {} and job-level permissions: {contents: read, packages: write} (packages: write needed for crane copy to ghcr.io).
+Moved inputs.version, runner.os and github.token out of the run: script into env: (INPUT_VERSION, RUNNER_OS_NAME, GH_TOKEN_VALUE), and every use of them is now double-quoted (case "$INPUT_VERSION", the download URL, os="$RUNNER_OS_NAME", and the token piped into crane auth login). Also quoted the tmp/out/url/GITHUB_PATH expansions. Install behavior and arguments are the same as upstream. This re-applies the security changes from the previous harden.
 
